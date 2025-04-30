@@ -66,10 +66,12 @@ const App = () => {
           if (report.type === "inbound-rtp" && report.kind === "audio") {
             setConnectionStats((prev) => ({
               ...prev,
-              jitter: report.jitter,
-              packetsLost: report.packetsLost,
-              roundTripTime: report.roundTripTime,
+              jitter: report.jitter || 'N/A',
+              packetsLost: report.packetsLost || 0,
+              roundTripTime: report.roundTripTime || 'N/A',  // Use roundTripTime for latency
+              bitrate: report.bitrateMean || 'N/A',
             }));
+  
             setIncomingData((prev) => [
               ...prev.slice(-20),
               `RTT: ${report.roundTripTime}, Jitter: ${report.jitter}, Lost: ${report.packetsLost}`,
@@ -89,17 +91,18 @@ const App = () => {
             label: audioTrack.label,
             kind: audioTrack.kind,
             sampleRate: settings.sampleRate || "Unknown",
-            latency: audioTrack.latency || "Unknown",
+            latency: audioTrack.latency || "Unknown",  // Latency might be undefined here
           }));
           setIncomingData(prev => [
             ...prev.slice(-20),
-            `SampleRate: ${settings.sampleRate}, Latency: ${audioTrack.latency}`
+            `SampleRate: ${settings.sampleRate}, Latency: ${audioTrack.latency}`,
           ]);
         }
       }
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+  
 
   const callPeer = () => {
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
