@@ -6,6 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const peerServer = ExpressPeerServer(server, {
   debug: true,
+  generateClientId: () => Math.random().toString(36).substr(2, 6),
 });
 
 app.use("/peerjs", peerServer);

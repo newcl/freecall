@@ -13,6 +13,7 @@ const App = () => {
   const peerRef = useRef();
   const currentCall = useRef();
   const localStreamRef = useRef();
+  const debugScrollRef = useRef();
 
   useEffect(() => {
     const peer = new Peer(undefined, {
@@ -42,23 +43,46 @@ const App = () => {
         });
 
         call.on("close", () => {
-          setStatus("Idle");
+          cleanup();
           logDebug("Remote call ended");
         });
+
+        call.on("error", (err) => logDebug("Call error: " + err.message));
       });
     });
+
+    peer.on("error", (err) => logDebug("Peer error: " + err.message));
 
     peerRef.current = peer;
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      const call = currentCall.current;
+      const pc = call?._peerConnection;
+      if (pc) {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "inbound-rtp" && report.kind === "audio") {
+            setConnectionStats((prev) => ({
+              ...prev,
+              jitter: report.jitter,
+              packetsLost: report.packetsLost,
+              roundTripTime: report.roundTripTime,
+            }));
+            setIncomingData((prev) => [
+              ...prev.slice(-20),
+              `RTT: ${report.roundTripTime}, Jitter: ${report.jitter}, Lost: ${report.packetsLost}`,
+            ]);
+          }
+        });
+      }
       if (localStreamRef.current) {
         const audioTrack = localStreamRef.current.getAudioTracks()[0];
         if (audioTrack) {
           const settings = audioTrack.getSettings();
-          setConnectionStats({
-            ...settings,
+          setConnectionStats(prev => ({
+            ...prev,
             readyState: audioTrack.readyState,
             muted: audioTrack.muted,
             enabled: audioTrack.enabled,
@@ -66,8 +90,11 @@ const App = () => {
             kind: audioTrack.kind,
             sampleRate: settings.sampleRate || "Unknown",
             latency: audioTrack.latency || "Unknown",
-          });
-          setIncomingData((prev) => [...prev.slice(-20), `SampleRate: ${settings.sampleRate}, Latency: ${audioTrack.latency}`]);
+          }));
+          setIncomingData(prev => [
+            ...prev.slice(-20),
+            `SampleRate: ${settings.sampleRate}, Latency: ${audioTrack.latency}`
+          ]);
         }
       }
     }, 1000);
@@ -91,7 +118,7 @@ const App = () => {
       });
 
       call.on("close", () => {
-        setStatus("Idle");
+        cleanup();
         logDebug("Call ended by peer");
       });
     });
@@ -100,18 +127,30 @@ const App = () => {
   const endCall = () => {
     if (currentCall.current) {
       currentCall.current.close();
-      setStatus("Idle");
       logDebug("Call ended");
     }
+    cleanup();
+  };
+
+  const cleanup = () => {
+    setStatus("Idle");
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       logDebug("Local stream tracks stopped");
     }
+    if (localAudioRef.current) localAudioRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
   };
 
   const logDebug = (msg) => {
     setDebugInfo((prev) => [...prev.slice(-100), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
+
+  useEffect(() => {
+    if (debugScrollRef.current) {
+      debugScrollRef.current.scrollTop = debugScrollRef.current.scrollHeight;
+    }
+  }, [debugInfo]);
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-4">
@@ -141,17 +180,13 @@ const App = () => {
       </div>
       <div>
         <p><strong>Status:</strong> {status}</p>
-        <p className="text-sm text-gray-600">Track Ready: {connectionStats.readyState || "N/A"}</p>
-        <p className="text-sm text-gray-600">Muted: {String(connectionStats.muted)}</p>
-        <p className="text-sm text-gray-600">Enabled: {String(connectionStats.enabled)}</p>
-        <p className="text-sm text-gray-600">Label: {connectionStats.label}</p>
-        <p className="text-sm text-gray-600">Kind: {connectionStats.kind}</p>
-        <p className="text-sm text-gray-600">Sample Rate: {connectionStats.sampleRate}</p>
-        <p className="text-sm text-gray-600">Latency: {connectionStats.latency}</p>
+        {Object.entries(connectionStats).map(([k, v]) => (
+          <p key={k} className="text-sm text-gray-600">{k}: {v?.toString()}</p>
+        ))}
       </div>
       <div className="bg-gray-100 p-2 rounded mt-4">
         <h2 className="font-semibold">Debug Info</h2>
-        <pre className="text-sm overflow-auto h-40">{debugInfo.join("\n")}</pre>
+        <pre className="text-sm overflow-auto h-40" ref={debugScrollRef}>{debugInfo.join("\n")}</pre>
       </div>
       <div className="bg-gray-100 p-2 rounded mt-4">
         <h2 className="font-semibold">Incoming Data</h2>
